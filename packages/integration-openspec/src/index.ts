@@ -27,7 +27,18 @@ import {
   isRepositoryRelativePath,
   resolveInRepository,
 } from '@prodshape/core';
-import { parse, stringify } from 'yaml';
+import {
+  isMap,
+  isScalar,
+  isSeq,
+  parse,
+  parseDocument,
+  Scalar,
+  stringify,
+  type Document,
+  type YAMLMap,
+  type YAMLSeq,
+} from 'yaml';
 import {
   loadProductChangeSchemaAssets,
   OPENSPEC_PRODUCT_CHANGE_SCHEMA_NAME,
@@ -462,6 +473,12 @@ export async function isOpenSpecIntegrationInstalled(root: string): Promise<bool
   return pathExists(metaPath(root));
 }
 
+/** Read the raw text of openspec/config.yaml, or null if it does not exist. */
+async function readConfigText(root: string): Promise<string | null> {
+  const path = configPath(root);
+  return (await pathExists(path)) ? readFile(path, 'utf8') : null;
+}
+
 /** Read and parse the existing openspec/config.yaml, or null if it does not exist. */
 export async function readOpenSpecConfig(root: string): Promise<Record<string, unknown> | null> {
   const path = configPath(root);
@@ -635,9 +652,111 @@ export function mergeConfig(
   return { config, changes };
 }
 
-/** Serialize config back to YAML with a trailing newline. */
-export function serializeConfig(config: Record<string, unknown>): string {
-  return `${stringify(config).trimEnd()}\n`;
+/** User prose is never folded or re-wrapped: a width of 0 disables line folding in `yaml`. */
+const YAML_OPTIONS = { lineWidth: 0 } as const;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((item, index) => deepEqual(item, b[index]));
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keys = Object.keys(a);
+    return (
+      keys.length === Object.keys(b).length &&
+      keys.every((key) => key in b && deepEqual(a[key], b[key]))
+    );
+  }
+  return false;
+}
+
+/** Plain JS value of a document node (or of a null slot). */
+function nodeValue(node: unknown): unknown {
+  if (node === null || node === undefined) return null;
+  const withJson = node as { toJSON?: () => unknown };
+  return typeof withJson.toJSON === 'function' ? withJson.toJSON() : node;
+}
+
+function keyName(key: unknown): string {
+  return isScalar(key) ? String(key.value) : String(key);
+}
+
+/**
+ * Bring `existing` (a node of the user's document) to `value`, touching only what differs.
+ * Returns the node that should occupy the slot: the same node, mutated in place, whenever its
+ * kind still fits, so comments and scalar styles (block literal, quotes) survive.
+ */
+function syncNode(doc: Document, existing: unknown, value: unknown): unknown {
+  if (isScalar(existing) && (value === null || typeof value !== 'object')) {
+    if (existing.value === value) return existing;
+    if (typeof value === 'string' && typeof existing.value === 'string') {
+      // Keep a block scalar's chomping: a `|` block holds a trailing newline, and dropping it
+      // would flip the header to `|-` for no reason the user chose.
+      const isBlock =
+        existing.type === Scalar.BLOCK_LITERAL || existing.type === Scalar.BLOCK_FOLDED;
+      existing.value =
+        isBlock && existing.value.endsWith('\n') && !value.endsWith('\n') ? `${value}\n` : value;
+    } else {
+      existing.value = value;
+    }
+    return existing;
+  }
+  if (isMap(existing) && isPlainObject(value)) {
+    syncMap(doc, existing, value);
+    return existing;
+  }
+  if (isSeq(existing) && Array.isArray(value)) {
+    syncSeq(doc, existing, value);
+    return existing;
+  }
+  return doc.createNode(value);
+}
+
+function syncMap(doc: Document, map: YAMLMap, value: Record<string, unknown>): void {
+  for (const pair of [...map.items]) {
+    if (!(keyName(pair.key) in value)) map.delete(pair.key);
+  }
+  for (const [key, next] of Object.entries(value)) {
+    const pair = map.items.find((item) => keyName(item.key) === key);
+    if (pair === undefined) {
+      map.set(key, doc.createNode(next));
+    } else if (!deepEqual(nodeValue(pair.value), next)) {
+      pair.value = syncNode(doc, pair.value, next);
+    }
+  }
+}
+
+function syncSeq(doc: Document, seq: YAMLSeq, value: unknown[]): void {
+  const unused = [...seq.items];
+  const items = value.map((next) => {
+    const at = unused.findIndex((item) => deepEqual(nodeValue(item), next));
+    return at === -1 ? doc.createNode(next) : unused.splice(at, 1)[0];
+  });
+  const unchanged =
+    items.length === seq.items.length && items.every((item, index) => item === seq.items[index]);
+  if (!unchanged) seq.items = items;
+}
+
+/**
+ * Serialize config back to YAML with a trailing newline. Without `originalText` the config is
+ * stringified fresh. With it, the config is applied onto the user's existing document so
+ * comments, key order, scalar styles and untouched nodes survive byte-for-byte; only nodes whose
+ * value differs are edited, and new keys go at the end. Prose is never re-wrapped.
+ */
+export function serializeConfig(
+  config: Record<string, unknown>,
+  originalText?: string | null,
+): string {
+  const fresh = (): string => `${stringify(config, YAML_OPTIONS).trimEnd()}\n`;
+  if (originalText === undefined || originalText === null) return fresh();
+  const doc = parseDocument(originalText);
+  if (doc.errors.length > 0 || !isMap(doc.contents)) return fresh();
+  syncMap(doc, doc.contents, config);
+  return `${doc.toString(YAML_OPTIONS).trimEnd()}\n`;
 }
 
 /** Read the ProductShape version from the integration-openspec package.json. */
@@ -896,7 +1015,7 @@ export async function addOpenSpecIntegration(
     // because a byte-identical rewrite is invisible in a diff and visible everywhere else — in
     // Git's stat cache, in file watchers, and in every build that keys off modification times.
     if (configChanges.length > 0) {
-      const serialized = serializeConfig(config);
+      const serialized = serializeConfig(config, await readConfigText(root));
       await mkdir(dirname(configPath(root)), { recursive: true });
       await writeFile(configPath(root), serialized, 'utf8');
       written.push(CONFIG_RELATIVE);
@@ -1437,7 +1556,13 @@ export async function removeOpenSpecIntegration(
     }
 
     if (configChanged) {
-      if (!dryRun) await writeFile(configPath(root), serializeConfig(config), 'utf8');
+      if (!dryRun) {
+        await writeFile(
+          configPath(root),
+          serializeConfig(config, await readConfigText(root)),
+          'utf8',
+        );
+      }
       restored.push(CONFIG_RELATIVE);
     }
   }

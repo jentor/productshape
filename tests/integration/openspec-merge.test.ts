@@ -336,3 +336,95 @@ describe('integration-openspec serializeConfig', () => {
     expect(parsed).toEqual(original);
   });
 });
+
+describe('integration-openspec preserves the user-authored config.yaml formatting', () => {
+  const LONG_LINE = `${'A very long hand-written sentence that must never be folded by the YAML writer. '.repeat(3)}End.`;
+  const USER_CONFIG = [
+    '# Hand-written by the team: keep this comment.',
+    'schema: spec-driven # inline comment on schema',
+    'context: |',
+    '  Our product is Acme.',
+    `  ${LONG_LINE}`,
+    '',
+    '  Second paragraph, after a blank line.',
+    '',
+  ].join('\n');
+
+  async function scratch(): Promise<{ dir: string; path: string }> {
+    const dir = await mkdtemp(join(tmpdir(), 'prodshape-openspec-format-'));
+    await mkdir(join(dir, 'openspec'), { recursive: true });
+    const path = join(dir, 'openspec', 'config.yaml');
+    await writeFile(path, USER_CONFIG, 'utf8');
+    return { dir, path };
+  }
+
+  it('Add_Should_KeepUserContextCommentsAndLongLinesVerbatim_AndBeIdempotent', async () => {
+    const { dir, path } = await scratch();
+    try {
+      await addOpenSpecIntegration(dir, { cliVersion: '1.2.3' });
+      const after = await readFile(path, 'utf8');
+
+      expect(after.startsWith(USER_CONFIG.replace(/\n$/, ''))).toBe(true);
+      expect(after).toContain('# Hand-written by the team: keep this comment.');
+      expect(after).toContain('schema: spec-driven # inline comment on schema');
+      expect(after).toContain('context: |\n');
+      expect(after).not.toMatch(/context: >/);
+      expect(after).toContain(`  ${LONG_LINE}\n`);
+      expect(after).not.toMatch(/\n\n\n/);
+      expect(after).toContain(PDAC_CONTEXT_BLOCK.split('\n')[0]!);
+      const parsed = parse(after) as { context: string; rules: unknown; operations: unknown };
+      expect(parsed.context).toContain(PDAC_CONTEXT_BLOCK);
+      expect(parsed.rules).toEqual(PDAC_RULES);
+
+      const second = await addOpenSpecIntegration(dir, { cliVersion: '1.2.3' });
+      expect(second.written).toEqual([]);
+      expect(await readFile(path, 'utf8')).toBe(after);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('Remove_Should_RestoreTheUsersOriginalTextByteForByte', async () => {
+    const { dir, path } = await scratch();
+    try {
+      await addOpenSpecIntegration(dir, { cliVersion: '1.2.3' });
+      expect(await readFile(path, 'utf8')).not.toBe(USER_CONFIG);
+      await removeOpenSpecIntegration(dir);
+      expect(await readFile(path, 'utf8')).toBe(USER_CONFIG);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('Update_Should_RefreshTheManagedBlockWithoutTouchingUserText', async () => {
+    const { dir, path } = await scratch();
+    try {
+      await addOpenSpecIntegration(dir, { cliVersion: '1.2.3' });
+      const added = await readFile(path, 'utf8');
+      await writeFile(
+        path,
+        added.replace('<!-- pdac:context begin -->', '<!-- pdac:context begin -->\n  stale line'),
+        'utf8',
+      );
+      await addOpenSpecIntegration(dir, { cliVersion: '1.2.3' });
+      expect(await readFile(path, 'utf8')).toBe(added);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('integration-openspec serializeConfig line width', () => {
+  it('SerializeConfig_Should_NotWrapALongSingleLineString', () => {
+    const long = `${'word '.repeat(60)}end`;
+    const yaml = serializeConfig({ context: long });
+    expect(yaml.trimEnd().split('\n')).toHaveLength(1);
+    expect(parse(yaml)).toEqual({ context: long });
+  });
+
+  it('SerializeConfig_Should_KeepCommentsAndStylesWhenGivenTheOriginalText', () => {
+    const original = '# top\na: |\n  keep\n  me\nb: 1 # inline\n';
+    const out = serializeConfig({ a: 'keep\nme\n', b: 2, c: 'new' }, original);
+    expect(out).toBe('# top\na: |\n  keep\n  me\nb: 2 # inline\nc: new\n');
+  });
+});

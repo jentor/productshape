@@ -33,6 +33,34 @@ const adoptionGuides = [
   { slug: 'brownfield', file: 'brownfield.md' },
   { slug: 'existing-repository', file: 'existing-repository.md' },
 ];
+const sectionTokens = {
+  '01': 'GOAL',
+  '02': 'CON',
+  '03': 'CTX',
+  '04': 'STR',
+  '05': 'BBV',
+  '06': 'RUN',
+  '07': 'DEP',
+  '08': 'XCC',
+  '09': 'ADR',
+  '10': 'QR',
+  '11': 'RTD',
+  '12': 'GLO',
+};
+const sectionIcons = {
+  '01': '<circle cx="8" cy="8" r="4.8"/><circle cx="8" cy="8" r="1.4"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2"/>',
+  '02': '<rect x="3" y="7" width="10" height="7.2" rx="1.3"/><path d="M5.3 7V5.1a2.7 2.7 0 0 1 5.4 0V7M8 9.8v1.6"/>',
+  '03': '<rect x="1.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="10" y="9" width="4.5" height="4.5" rx="1"/><path d="M6 4.8h2.1a2 2 0 0 1 2 2V9"/>',
+  '04': '<circle cx="8" cy="8" r="6"/><path d="m10.9 5.1-1.8 4-4 1.8 1.8-4z"/>',
+  '05': '<path d="m8 1.5 6.2 3.3v6.4L8 14.5l-6.2-3.3V4.8z"/><path d="m1.8 4.8 6.2 3.3 6.2-3.3M8 8.1v6.4"/>',
+  '06': '<circle cx="8" cy="8" r="6"/><path d="m6.5 4.9 4.6 3.1-4.6 3.1z"/>',
+  '07': '<rect x="5" y="1.5" width="6" height="4.2" rx=".7"/><path d="M8 5.7v2.8M6.4 6.9 8 8.5l1.6-1.6"/><rect x="2" y="9" width="12" height="5.5" rx="1"/><path d="M4.2 11h7.6M4.2 12.7h7.6"/>',
+  '08': '<circle cx="6" cy="8" r="4.2"/><circle cx="10" cy="8" r="4.2"/>',
+  '09': '<path d="m8 1.8 5.2 3v6L8 13.8l-5.2-3v-6zM8 13.8v1.4M8 7.8h.1M8 7.8v-2"/><path d="M8 9.4v1.2"/>',
+  '10': '<path d="M2 11.8a6 6 0 1 1 12 0"/><path d="m8 11.8 3.1-3.5"/><circle cx="8" cy="11.8" r="1"/><path d="m4 7.4.8.6M8 5.8v1M12 7.4l-.8.6"/>',
+  '11': '<path d="M8 1.8 14.4 13H1.6z"/><path d="M8 5.3v3.4M8 11.1v.1"/>',
+  '12': '<path d="M3.2 1.8h6l3.6 3.6v8.8H3.2zM9.2 1.8v3.6h3.6"/><path d="M5.3 8h5.4M5.3 10.2h5.4M5.3 12.4h3.8"/>',
+};
 const architectureFiles = (await readdir(architectureDir))
   .filter((name) => /^\d{2}-.*\.md$/u.test(name))
   .sort();
@@ -51,18 +79,20 @@ const sections = await Promise.all(
     if (
       metadata['arc42-section'] !== number ||
       metadata.title === undefined ||
-      !metadata.description
+      !metadata.description ||
+      !sectionTokens[number]
     ) {
       throw new Error(`Invalid arc42 document metadata in docs/architecture/${name}.`);
     }
     return {
       number,
+      token: sectionTokens[number],
       name,
       slug: name.replace(/\.md$/u, ''),
       title: metadata.title,
       description: metadata.description,
       markdown,
-      html: markdownToHtml(markdown, name),
+      html: markdownToHtml(markdown.trimStart().replace(/^#\s+[^\r\n]+(?:\r?\n)+/u, ''), name, 0),
     };
   }),
 );
@@ -99,7 +129,6 @@ for (const locale of ['en', 'es']) {
   await emitPage(locale, 'product', 'product', renderProduct(words));
   await emitPage(locale, 'workflow', 'how-it-works', renderWorkflow(words));
   await emitPage(locale, 'start', 'get-started', renderStart(words, packageJson.version));
-  await emitPage(locale, 'engineering', 'engineering', renderEngineeringIndex(words, locale));
   await emitPage(locale, 'model', 'model', renderModel(words));
   for (const guide of adoptionGuides) {
     const markdown = await readFile(join(root, 'docs/adoption', guide.file), 'utf8');
@@ -107,6 +136,12 @@ for (const locale of ['en', 'es']) {
     await emitPage(locale, 'start', `guides/${guide.slug}`, renderGuide(guide, markdown, words), {
       title: `${guideCopy.title} · ProductShape`,
       description: guideCopy.description,
+    });
+  }
+  if (locale === 'en') {
+    await emitPage('en', 'engineering', 'engineering', renderEngineeringLanding(), {
+      title: 'Architecture Documentation · ProductShape',
+      description: 'Explore the twelve sections of ProductShape architecture documentation.',
     });
   }
 }
@@ -161,11 +196,12 @@ function normalizeOrigin(value) {
 }
 
 function renderSitemap() {
-  const routeNames = ['', 'product/', 'how-it-works/', 'get-started/', 'engineering/', 'model/'];
+  const routeNames = ['', 'product/', 'how-it-works/', 'get-started/', 'model/'];
   const urls = [];
   for (const locale of ['en', 'es']) {
     for (const route of routeNames) urls.push(`${siteOrigin}${basePath}${locale}/${route}`);
   }
+  urls.push(`${siteOrigin}${basePath}en/engineering/`);
   for (const section of sections) {
     urls.push(`${siteOrigin}${basePath}en/engineering/${section.slug}/`);
   }
@@ -190,7 +226,6 @@ async function emitPage(locale, pageKind, route, body, overrides = {}) {
         : `${words.nav.product} · ProductShape`,
     workflow: `${words.nav.workflow} · ProductShape`,
     start: `${words.nav.start} · ProductShape`,
-    engineering: `${words.nav.engineering} · ProductShape`,
     model: `${words.nav.model} · ProductShape`,
   };
   const descriptions = {
@@ -198,7 +233,6 @@ async function emitPage(locale, pageKind, route, body, overrides = {}) {
     product: words.product.intro,
     workflow: words.workflow.intro,
     start: words.start.intro,
-    engineering: words.engineering.intro,
     model: words.model.intro,
   };
   const routePath = route ? `${route}/` : '';
@@ -227,7 +261,7 @@ function shell({ locale, pageKind = '', title, description, body, routePath = ''
       product: `${basePath}${locale}/product/`,
       workflow: `${basePath}${locale}/how-it-works/`,
       start: `${basePath}${locale}/get-started/`,
-      engineering: `${basePath}${locale}/engineering/`,
+      engineering: `${basePath}en/engineering/`,
       model: `${basePath}${locale}/model/`,
     };
     return paths[page];
@@ -241,19 +275,21 @@ function shell({ locale, pageKind = '', title, description, body, routePath = ''
     ['model', nav.model],
   ];
   const languageRoute = (target) => {
-    const suffix = routePath.startsWith('engineering/') ? 'engineering/' : routePath;
-    return `${basePath}${target}/${suffix}`;
+    if (routePath.startsWith('engineering/')) {
+      return target === 'en' ? `${basePath}en/${routePath}` : `${basePath}es/`;
+    }
+    return `${basePath}${target}/${routePath}`;
   };
-  const header = `<a class="skip-link" href="#main">${locale === 'es' ? 'Saltar al contenido' : 'Skip to content'}</a><header class="site-header"><div class="header-inner"><a class="brand" href="${rootHref}" aria-label="ProductShape home"><img class="brand-icon" src="${basePath}assets/productshape-icon.png" width="38" height="38" alt=""><span>ProductShape</span></a><nav class="main-nav" aria-label="${locale === 'es' ? 'Navegación principal' : 'Primary navigation'}">${navItems.map(([key, label]) => `<a href="${route(key)}"${pageKind === key ? ' aria-current="page"' : ''}>${escapeHtml(label)}</a>`).join('')}<a href="${repoUrl}" rel="external">${escapeHtml(nav.github)}</a><span class="language-switch" aria-label="${locale === 'es' ? 'Idioma' : 'Language'}"><a href="${languageRoute('en')}" lang="en"${locale === 'en' ? ' aria-current="true"' : ''}>EN</a><a href="${languageRoute('es')}" lang="es"${locale === 'es' ? ' aria-current="true"' : ''}>ES</a></span></nav></div></header>`;
+  const header = `<a class="skip-link" href="#main">${locale === 'es' ? 'Saltar al contenido' : 'Skip to content'}</a><header class="site-header"><div class="header-inner"><a class="brand" href="${rootHref}" aria-label="ProductShape home"><img class="brand-icon" src="${basePath}assets/productshape-icon.png" width="32" height="32" alt=""><span class="brand-title">ProductShape</span></a><span class="header-version">v${packageJson.version}</span><nav class="main-nav" aria-label="${locale === 'es' ? 'Navegación principal' : 'Primary navigation'}">${navItems.map(([key, label]) => `<a href="${route(key)}"${pageKind === key ? ' aria-current="page"' : ''}>${escapeHtml(label)}</a>`).join('')}<a href="${repoUrl}" rel="external">${escapeHtml(nav.github)}</a><span class="language-switch" aria-label="${locale === 'es' ? 'Idioma' : 'Language'}"><a href="${languageRoute('en')}" lang="en"${locale === 'en' ? ' aria-current="true"' : ''}>EN</a><a href="${languageRoute('es')}" lang="es"${locale === 'es' ? ' aria-current="true"' : ''}>ES</a></span></nav><span class="header-spacer"></span><a class="site-search" href="${basePath}model/explorer.html?search=1" aria-label="Search the product"><svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="5.5"></circle><path d="m13 13 4 4"></path></svg><span>Search the product</span><kbd>/</kbd></a><div class="appearance-controls" role="group" aria-label="${locale === 'es' ? 'Apariencia' : 'Appearance'}"><button type="button" data-appearance-choice="light" aria-label="${locale === 'es' ? 'Tema claro' : 'Light theme'}" title="${locale === 'es' ? 'Tema claro' : 'Light theme'}" aria-pressed="false">☼</button><button type="button" data-appearance-choice="dark" aria-label="${locale === 'es' ? 'Tema oscuro' : 'Dark theme'}" title="${locale === 'es' ? 'Tema oscuro' : 'Dark theme'}" aria-pressed="false">☾</button><button type="button" data-appearance-choice="auto" aria-label="${locale === 'es' ? 'Tema del sistema' : 'System theme'}" title="${locale === 'es' ? 'Tema del sistema' : 'Theme follows system'}" aria-pressed="true">▣</button></div><a class="site-keys" href="${basePath}model/explorer.html?keys=1" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">⌨</a></div></header>`;
   const footer = `<footer class="site-footer"><div class="footer-inner"><div class="footer-identities"><a class="footer-productshape" href="${rootHref}"><img src="${basePath}assets/productshape-branding.png" width="190" height="95" alt="ProductShape — Product Definition as Code"></a><a class="footer-methodology" href="https://github.com/product-definition-as-code/spec"><img src="${basePath}assets/pdac-logo.png" width="54" height="54" alt="PDaC logo"><span><strong>Product Definition as Code</strong><small>${escapeHtml(siteText[locale].footer.methodology)}</small></span></a></div><div class="footer-meta"><p>${escapeHtml(siteText[locale].footer.line)}<br><span>${siteText[locale].footer.license}</span></p><div class="footer-links"><a href="https://github.com/product-definition-as-code/spec">${escapeHtml(siteText[locale].footer.spec)}</a><a href="${repoUrl}">${escapeHtml(siteText[locale].footer.repo)}</a></div></div></div></footer>`;
-  return `<!doctype html>\n<html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="description" content="${escapeAttribute(description)}"><meta property="og:title" content="${escapeAttribute(title)}"><meta property="og:description" content="${escapeAttribute(description)}"><meta property="og:type" content="website"><title>${escapeHtml(title)}</title><link rel="icon" href="${basePath}assets/productshape-icon.png" type="image/png"><link rel="stylesheet" href="${asset}"><link rel="canonical" href="${siteOrigin}${basePath}${localizedPath}"></head><body>${header}<main id="main">${body}</main>${footer}</body></html>\n`;
+  return `<!doctype html>\n<html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="description" content="${escapeAttribute(description)}"><meta property="og:title" content="${escapeAttribute(title)}"><meta property="og:description" content="${escapeAttribute(description)}"><meta property="og:type" content="website"><title>${escapeHtml(title)}</title><link rel="icon" href="${basePath}assets/productshape-icon.png" type="image/png"><link rel="stylesheet" href="${asset}"><link rel="canonical" href="${siteOrigin}${basePath}${localizedPath}"></head><body>${header}<main id="main">${body}</main>${footer}<script>const appearanceKey='productshape-appearance';const appearanceRoot=document.documentElement;const appearanceButtons=document.querySelectorAll('[data-appearance-choice]');function setAppearance(choice){if(choice==='auto')appearanceRoot.removeAttribute('data-appearance');else appearanceRoot.setAttribute('data-appearance',choice);localStorage.setItem(appearanceKey,choice);appearanceButtons.forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.appearanceChoice===choice)));}const savedAppearance=localStorage.getItem(appearanceKey)||'auto';setAppearance(savedAppearance);appearanceButtons.forEach(button=>button.addEventListener('click',()=>setAppearance(button.dataset.appearanceChoice)));</script></body></html>\n`;
 }
 
 function renderHome(words, locale) {
   const home = words.home;
   const start = `${basePath}${locale}/get-started/`;
   const model = `${basePath}${locale}/model/`;
-  const engineering = `${basePath}${locale}/engineering/`;
+  const engineering = `${basePath}en/engineering/`;
   return `<section class="hero wrap"><div><p class="eyebrow">${escapeHtml(home.eyebrow)}</p><h1>${escapeHtml(home.title)}</h1><p class="lead">${escapeHtml(home.intro)}</p><div class="actions"><a class="button" href="${start}">${escapeHtml(home.primaryAction)}</a><a class="button secondary" href="${model}">${escapeHtml(home.secondaryAction)}</a></div></div><figure class="hero-art"><img src="${basePath}assets/product-explorer.png" width="1440" height="900" alt="${locale === 'es' ? 'Vista real del explorador del modelo de producto de ProductShape' : 'Real view of the ProductShape product model explorer'}"><figcaption class="image-caption">${locale === 'es' ? 'Una instantánea real del modelo, regenerada desde este repositorio.' : 'A real model snapshot, regenerated from this repository.'}</figcaption></figure></section><div class="wrap"><div class="proof-line"><strong>${escapeHtml(home.proofLabel)}</strong><span>${escapeHtml(home.proof)}</span></div></div><section class="section"><div class="wrap"><div class="section-heading"><div><p class="eyebrow">${locale === 'es' ? 'Una estructura común' : 'A shared structure'}</p><h2>${escapeHtml(home.flowTitle)}</h2></div><p>${escapeHtml(home.flowIntro)}</p></div>${flowGraphic(locale)}<div class="flow-grid">${home.flow.map((step) => `<article class="flow-step"><span class="step-number">${step.number}</span><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.text)}</p></article>`).join('')}</div></div></section><section class="section"><div class="wrap split-section"><div><p class="eyebrow">${locale === 'es' ? 'El límite importante' : 'The important boundary'}</p><h2>${escapeHtml(home.principleTitle)}</h2></div><div class="statement"><p>${escapeHtml(home.principleText)}</p></div></div></section><section class="section"><div class="wrap"><div class="section-heading"><div><p class="eyebrow">${locale === 'es' ? 'Dogfooding público' : 'Public dogfooding'}</p><h2>${escapeHtml(home.explorerTitle)}</h2></div><p>${escapeHtml(home.explorerText)}</p></div><p><a class="button secondary" href="${model}">${escapeHtml(words.nav.model)} →</a></p></div></section><section class="section"><div class="wrap split-section"><div><p class="eyebrow">${locale === 'es' ? 'Implementación' : 'Implementation'}</p><h2>${escapeHtml(home.architectureTitle)}</h2></div><div><p class="lead">${escapeHtml(home.architectureText)}</p><a href="${engineering}">${escapeHtml(words.nav.engineering)} →</a></div></div></section><section class="section"><div class="wrap"><div class="cta-band"><div><p class="eyebrow">${locale === 'es' ? 'Siguiente paso' : 'Next step'}</p><h2>${escapeHtml(home.closingTitle)}</h2><p>${escapeHtml(home.closingText)}</p></div><a class="button" href="${start}">${escapeHtml(words.nav.start)} →</a></div></div></section>`;
 }
 
@@ -323,69 +359,36 @@ function renderGuide(guide, markdown, words) {
   return `<section class="page-hero guide-hero"><div class="wrap"><p class="breadcrumbs"><a href="${basePath}${words.languageName === 'Español' ? 'es' : 'en'}/get-started/">${escapeHtml(words.start.eyebrow)}</a> / ${escapeHtml(words.guides.items.find((item) => item.slug === guide.slug).label)}</p><p class="eyebrow">${escapeHtml(words.guides.eyebrow)}</p><h1>${escapeHtml(words.guides.items.find((item) => item.slug === guide.slug).title)}</h1><p class="lead">${escapeHtml(words.guides.items.find((item) => item.slug === guide.slug).description)}</p></div></section><section class="section guide-section"><article class="guide-content">${intro}${markdownToHtml(content, `adoption:${words.languageName === 'Español' ? 'es' : 'en'}:${guide.slug}`)}<p class="guide-source"><a href="${source}" rel="external">${escapeHtml(words.guides.source)} →</a></p></article></section>`;
 }
 
-function renderEngineeringIndex(words, locale) {
-  const translated = locale === 'es';
-  const labels = translated
-    ? [
-        'Introducción y objetivos',
-        'Restricciones de arquitectura',
-        'Contexto y alcance',
-        'Estrategia de solución',
-        'Bloques de construcción',
-        'Vista de ejecución',
-        'Vista de despliegue',
-        'Conceptos transversales',
-        'Decisiones de arquitectura',
-        'Requisitos de calidad',
-        'Riesgos y deuda técnica',
-        'Glosario',
-      ]
-    : sections.map((section) => section.title);
-  const descriptions = translated
-    ? [
-        'Alcance del sistema, motivadores y lectores',
-        'Restricciones y sus consecuencias estructurales',
-        'Usuarios, sistemas externos e intercambios',
-        'Enfoques arquitectónicos fundamentales',
-        'Descomposición estática y dependencias',
-        'Flujos de trabajo e interacciones representativos',
-        'Distribución y documentación pública',
-        'Mecanismos compartidos entre paquetes',
-        'Índice de decisiones de arquitectura',
-        'Intención de calidad, respuesta y evidencias',
-        'Riesgos y mitigaciones actuales',
-        'Términos técnicos de estas vistas',
-      ]
-    : sections.map((section) => section.description);
-  const list = sections
+function renderEngineeringSidebar(activeSlug = '') {
+  const nav = sections
     .map(
-      (section, index) =>
-        `<li><span class="section-no">${section.number}</span><div><a href="${basePath}en/engineering/${section.slug}/">${escapeHtml(labels[index])}</a><p>${escapeHtml(descriptions[index])}</p></div></li>`,
+      (item) =>
+        `<li><a href="${basePath}en/engineering/${item.slug}/" data-section="${item.number}"${item.slug === activeSlug ? ' aria-current="page"' : ''}><span class="engineering-chev" aria-hidden="true">›</span><span class="engineering-token"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${sectionIcons[item.number]}</svg>${item.token}</span><span class="engineering-nav-title">${escapeHtml(item.title)}</span><span class="engineering-number">${item.number}</span></a></li>`,
     )
     .join('');
-  const message = translated
-    ? `<div class="callout"><p>${escapeHtml(words.arc42EnglishOnly)}</p></div>`
-    : '';
-  const markdownHref = `${repoUrl}/tree/main/docs/architecture`;
-  return `<section class="page-hero"><div class="narrow"><p class="eyebrow">${escapeHtml(words.engineering.eyebrow)}</p><h1>${escapeHtml(words.engineering.title)}</h1><p class="lead">${escapeHtml(words.engineering.intro)}</p></div></section><section class="section"><div class="narrow"><p class="eyebrow">${escapeHtml(words.engineering.sections)}</p>${message}<ol class="section-index">${list}</ol><p><a href="${markdownHref}">${escapeHtml(words.engineering.githubSource)} →</a></p><p><a href="${repoUrl}/tree/main/docs/architecture/decisions">${escapeHtml(words.engineering.decisions)} →</a></p></div></section>`;
+  return `<aside class="engineering-nav" aria-label="Engineering sections"><header class="engineering-nav-head"><h2>ENGINEERING</h2><span>${sections.length}</span></header><div class="engineering-listwrap"><ol>${nav}</ol></div><a class="engineering-attribution" href="${basePath}en/" title="Build with ProductShape v${packageJson.version}"><span class="engineering-info" aria-hidden="true">i</span><span>Build with ProductShape v${packageJson.version}</span></a></aside>`;
+}
+
+function renderEngineeringLanding() {
+  const cards = sections
+    .map(
+      (item) =>
+        `<a class="engineering-card" data-section="${item.number}" href="${basePath}en/engineering/${item.slug}/"><span class="engineering-card-icon"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${sectionIcons[item.number]}</svg></span><span class="engineering-card-copy"><span class="engineering-card-code">${item.token} · ${item.number}</span><strong>${escapeHtml(item.title)}</strong><span class="engineering-card-description">${escapeHtml(item.description)}</span></span></a>`,
+    )
+    .join('');
+  return `<div class="engineering-layout">${renderEngineeringSidebar()}<section class="engineering-content engineering-overview-content"><div class="engineering-overview-inner"><header class="engineering-overview-heading"><h1>Architecture Documentation</h1><p>Explore the product architecture through its goals, constraints, structures, decisions, and shared vocabulary.</p></header><div class="engineering-cards">${cards}</div><ul class="engineering-legend" aria-label="Section color groups"><li><span class="engineering-legend-swatch" data-family="requirements" aria-hidden="true"></span>Requirements &amp; quality</li><li><span class="engineering-legend-swatch" data-family="structures" aria-hidden="true"></span>Structures &amp; views</li><li><span class="engineering-legend-swatch" data-family="concepts" aria-hidden="true"></span>Concepts, technologies, decisions</li><li><span class="engineering-legend-swatch" data-family="reference" aria-hidden="true"></span>Risks &amp; reference</li></ul></div></section></div>`;
 }
 
 function renderArchitecturePage(section) {
   const sectionIndex = sections.indexOf(section);
   const previous = sections[sectionIndex - 1];
   const next = sections[sectionIndex + 1];
-  const nav = sections
-    .map(
-      (item) =>
-        `<li><a href="${basePath}en/engineering/${item.slug}/"${item.slug === section.slug ? ' aria-current="page"' : ''}><span class="nav-no">${item.number}</span><span>${escapeHtml(item.title)}</span></a></li>`,
-    )
-    .join('');
   const sourceUrl = `${repoUrl}/blob/main/docs/architecture/${section.name}`;
   const adjacentLink = (item, direction) =>
     item
       ? `<a class="nav-adjacent nav-${direction}" href="${basePath}en/engineering/${item.slug}/"><span>${direction === 'previous' ? '← Previous' : 'Next →'}</span><strong>${item.number} · ${escapeHtml(item.title)}</strong></a>`
       : `<span class="nav-adjacent nav-${direction} disabled" aria-hidden="true"></span>`;
-  return `<section class="engineering-page-hero"><div class="wrap"><p class="breadcrumbs"><a href="${basePath}en/engineering/">Engineering</a> / arc42 ${section.number}</p><p class="eyebrow">arc42 · section ${section.number} of 12</p><h1>${escapeHtml(section.title)}</h1><p class="lead">${escapeHtml(section.description)}</p></div></section><div class="wrap engineering-layout"><nav class="engineering-nav" aria-label="arc42 sections"><details open><summary>Architecture sections <span>12 views</span></summary><a class="engineering-overview" href="${basePath}en/engineering/">Overview and section index</a><ol>${nav}</ol><a class="engineering-decisions" href="${repoUrl}/tree/main/docs/architecture/decisions">Architecture decisions ↗</a><div class="nav-adjacent-list">${adjacentLink(previous, 'previous')}${adjacentLink(next, 'next')}</div></details></nav><article class="engineering-content"><div class="engineering-content-inner">${section.html}<div class="engineering-endmatter"><p class="source-stamp">${escapeHtml(revision)}</p><p class="link-list"><a href="${sourceUrl}">Markdown source on GitHub →</a><a href="${basePath}en/engineering/">All architecture views →</a></p><div class="article-pagination">${adjacentLink(previous, 'previous')}${adjacentLink(next, 'next')}</div></div></div></article></div>`;
+  return `<div class="engineering-layout">${renderEngineeringSidebar(section.slug)}<article class="engineering-content"><div class="engineering-content-inner"><h1 class="engineering-title">${escapeHtml(section.title)}</h1>${section.html}<div class="engineering-endmatter"><p class="source-stamp">${escapeHtml(revision)}</p><p class="link-list"><a href="${sourceUrl}">Markdown source on GitHub →</a></p><div class="article-pagination">${adjacentLink(previous, 'previous')}${adjacentLink(next, 'next')}</div></div></div></article></div>`;
 }
 
 function renderModel(words) {
@@ -393,8 +396,8 @@ function renderModel(words) {
   return `<section class="page-hero"><div class="wrap"><p class="eyebrow">${escapeHtml(words.model.eyebrow)}</p><h1>${escapeHtml(words.model.title)}</h1><p class="lead">${escapeHtml(words.model.intro)}</p><div class="model-launch"><p>${escapeHtml(words.model.notice)}</p><div class="link-list"><a class="button" href="${src}" target="_blank" rel="noopener">${escapeHtml(words.model.open)} ↗</a><a href="${repoUrl}/tree/main/docs/product/model">${escapeHtml(words.model.source)} →</a></div></div></div></section>`;
 }
 
-function redirectPage(destination, title) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${destination}"><meta name="robots" content="noindex"><title>${escapeHtml(title)}</title></head><body><p>The model explorer moved to <a href="${destination}">${escapeHtml(title)}</a>.</p></body></html>`;
+function redirectPage(destination, title, message = 'The model explorer moved to') {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${destination}"><meta name="robots" content="noindex"><title>${escapeHtml(title)}</title></head><body><p>${escapeHtml(message)} <a href="${destination}">${escapeHtml(title)}</a>.</p></body></html>`;
 }
 
 function splitFrontmatter(source, name) {
@@ -415,7 +418,7 @@ function splitFrontmatter(source, name) {
   return { metadata, markdown: match[2] };
 }
 
-function markdownToHtml(markdown, sourceName) {
+function markdownToHtml(markdown, sourceName, headingOffset = 1) {
   const lines = markdown.replace(/<!--[^]*?-->/gu, '').split(/\r?\n/u);
   const output = [];
   let paragraph = [];
@@ -490,7 +493,7 @@ function markdownToHtml(markdown, sourceName) {
       const text = line.slice(level).trim();
       const id = slug(text);
       output.push(
-        `<h${Math.min(level + 1, 6)} id="${id}">${inlineMarkdown(text, sourceName)}</h${Math.min(level + 1, 6)}>`,
+        `<h${Math.min(level + headingOffset, 6)} id="${id}">${inlineMarkdown(text, sourceName)}</h${Math.min(level + headingOffset, 6)}>`,
       );
       continue;
     }

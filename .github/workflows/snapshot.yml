@@ -6,11 +6,18 @@ on:
       - '.github/workflows/snapshot.yml'
       - 'docs/architecture/**'
       - 'docs/product/model/**'
-      - 'packages/**'
-      - 'scripts/build-public-site.mjs'
-      - 'scripts/validate-public-site.mjs'
-      - 'site/assets/**'
-      - 'site/content/**'
+      - 'src/packages/**'
+      - 'src/scripts/build-public-site.mjs'
+      - 'src/scripts/build-legacy-public-content.mjs'
+      - 'src/scripts/validate-public-site.mjs'
+      - 'src/scripts/check-public-site-browser.mjs'
+      - 'src/public-site/assets/**'
+      - 'src/public-site/content/**'
+      - 'src/public-site/src/**'
+      - 'src/public-site/astro.config.mjs'
+      - 'src/public-site/diagrams/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
   push:
     branches: [main]
   workflow_dispatch:
@@ -37,7 +44,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: generate the product explorer
-        run: node packages/cli/dist/bin.js graph --format html --product-url https://productshape.dev
+        run: node src/packages/cli/dist/bin.js graph --format html --product-url https://productshape.dev
       - name: identify engineering snapshot sources
         env:
           SOURCE_REVISION: ${{ github.sha }}
@@ -59,10 +66,23 @@ jobs:
             `${JSON.stringify(manifest, null, 2)}\n`,
           );
           NODE
+      - name: Build compatibility visual baseline
+        run: node src/scripts/build-legacy-public-content.mjs --profile engineering --out engineering-baseline --base-path /productshape/ --site-origin https://juangcarmona.github.io --snapshot-source .product/generated/snapshot.html --engineering-manifest .product/generated/engineering/manifest.json
       - name: assemble the engineering portal
-        run: node scripts/build-public-site.mjs --profile engineering --out _site --base-path /productshape/ --site-origin https://juangcarmona.github.io
+        env:
+          MERMAID_RENDER: '1'
+        run: node src/scripts/build-public-site.mjs --profile engineering --out _site --base-path /productshape/ --site-origin https://juangcarmona.github.io
       - name: Validate the engineering directory
-        run: node scripts/validate-public-site.mjs --dir _site --profile engineering --base-path /productshape/ --site-origin https://juangcarmona.github.io
+        run: node src/scripts/validate-public-site.mjs --dir _site --profile engineering --base-path /productshape/ --site-origin https://juangcarmona.github.io
+      - name: Run engineering browser regression checks
+        run: node src/scripts/check-public-site-browser.mjs --dir _site --baseline-dir engineering-baseline --profile engineering --base-path /productshape/ --evidence-dir engineering-browser-evidence
+      - name: Upload engineering browser regression evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: productshape-engineering-browser-${{ github.sha }}
+          path: engineering-browser-evidence
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload the engineering review artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

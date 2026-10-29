@@ -448,7 +448,22 @@ body[data-master='rail'] .master-credit .label { display: none; }
   padding: 0.55rem 0.75rem; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); font-size: 0.84rem;
 }
 .detail dl.meta dt { color: var(--muted); font-family: var(--mono); font-size: 0.76rem; line-height: 1.6rem; }
-.detail dl.meta dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; min-height: 1.6rem; }
+.detail dl.meta dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; min-height: 1.6rem; min-width: 0; }
+.detail dl.meta > dt:has(+ dd > .meta-list), .detail dl.meta > dt:has(+ dd > .meta-object) {
+  grid-column: 1 / -1; margin-top: 0.65rem; padding-top: 0.55rem; border-top: 1px solid var(--line);
+}
+.detail dl.meta > dd:has(> .meta-list), .detail dl.meta > dd:has(> .meta-object) { grid-column: 1 / -1; }
+.detail .meta-object { display: grid; grid-template-columns: minmax(0, 8.5rem) minmax(0, 1fr); gap: 0.3rem 0.75rem; margin: 0; width: 100%; }
+.detail .meta-list { margin: 0; padding: 0; width: 100%; list-style: none; counter-reset: metadata-item; }
+.detail .meta-list > li { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: 0.75rem; padding: 0.6rem 0; counter-increment: metadata-item; }
+.detail .meta-list > li::before { content: counter(metadata-item) '.'; color: var(--muted); font: 0.76rem/1.6rem var(--mono); }
+.detail .meta-list > li + li { border-top: 1px solid var(--line); }
+.detail .verification-list > li { display: flex; align-items: baseline; gap: 0.6rem; counter-increment: none; }
+.detail .verification-list > li::before { content: none; }
+.detail .verification-list .meta-text { flex: 1; min-width: 0; }
+.detail .scenario-id { flex: 0 0 auto; max-width: 30%; padding: 0.05rem 0.35rem; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--muted); font: 0.72rem/1.4 var(--mono); }
+.detail dl.meta { overflow-wrap: anywhere; }
+.detail .meta-text { white-space: pre-wrap; }
 a.ref {
   display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--line-strong); border-radius: 3px;
   padding: 0.05rem 0.4rem 0.05rem 0.25rem; background: var(--bg); color: var(--text); font-size: 0.82rem;
@@ -612,6 +627,7 @@ dl.keys dd { margin: 0; }
   header.site { gap: 0.5rem; padding: 0 0.6rem; }
   nav.views a { padding: 0 0.5rem; }
   .detail dl.meta { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
+  .detail .meta-object { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
   .detail dl.meta dt { line-height: 1.4rem; }
   .detail dl.meta dd { margin-bottom: 0.35rem; }
   a.ref { max-width: 100%; flex-wrap: wrap; }
@@ -1331,13 +1347,45 @@ const script = String.raw`
       }
     }
   };
-  var metaValue = function (dd, value) {
-    var parts = String(value).split(/,\s*/);
-    var allKnown = parts.length > 0;
-    for (var p = 0; p < parts.length; p += 1) if (!byId[parts[p]]) allKnown = false;
+  var metaValue = function (dd, value, fieldName) {
+    var parts = Array.isArray(value) ? value : [value];
+    var allKnown = parts.length > 0 && parts.every(function (part) {
+      return typeof part === 'string' && Object.prototype.hasOwnProperty.call(byId, part);
+    });
     if (!allKnown) {
-      dd.textContent = String(value);
-      linkIdentifiers(dd);
+      if (Array.isArray(value) && value.length > 0) {
+        var verification = fieldName === 'verification';
+        var list = el(verification ? 'ul' : 'ol', verification ? 'meta-list verification-list' : 'meta-list');
+        for (var i = 0; i < value.length; i += 1) {
+          var item = el('li');
+          var entry = value[i];
+          if (verification && entry && typeof entry.scenario === 'string' && Object.keys(entry).every(function (key) { return key === 'id' || key === 'scenario'; })) {
+            if (typeof entry.id === 'string') item.appendChild(el('span', 'scenario-id', entry.id));
+            var scenario = el('span', 'meta-text', entry.scenario);
+            linkIdentifiers(scenario);
+            item.appendChild(scenario);
+          } else if (verification && entry && typeof entry['scenario-ref'] === 'string' && Object.keys(entry).length === 1) {
+            metaValue(item, entry['scenario-ref']);
+          } else {
+            metaValue(item, entry);
+          }
+          list.appendChild(item);
+        }
+        dd.appendChild(list);
+      } else if (value !== null && typeof value === 'object' && Object.keys(value).length > 0) {
+        var fields = el('dl', 'meta-object');
+        Object.keys(value).forEach(function (key) {
+          fields.appendChild(el('dt', null, key));
+          var field = el('dd');
+          metaValue(field, value[key]);
+          fields.appendChild(field);
+        });
+        dd.appendChild(fields);
+      } else {
+        var text = el('span', 'meta-text', Array.isArray(value) ? '[]' : value !== null && typeof value === 'object' ? '{}' : String(value));
+        linkIdentifiers(text);
+        dd.appendChild(text);
+      }
       return;
     }
     for (var r = 0; r < parts.length; r += 1) {
@@ -1469,7 +1517,7 @@ const script = String.raw`
       for (var mi = 0; mi < a.meta.length; mi += 1) {
         dl.appendChild(el('dt', null, a.meta[mi][0]));
         var dd = el('dd');
-        metaValue(dd, a.meta[mi][1]);
+        metaValue(dd, a.meta[mi][1], a.meta[mi][0]);
         dl.appendChild(dd);
       }
       header.appendChild(dl);
@@ -2215,11 +2263,11 @@ const script = String.raw`
         li.style.flexWrap = 'wrap';
         var steps = [];
         /* The recorded order lives in the journey's own steps field; the compiled edges are sorted. */
-        var recorded = null;
+        var recorded = [];
         for (var mk = 0; mk < journeys[j].meta.length; mk += 1) {
-          if (journeys[j].meta[mk][0] === 'steps') recorded = String(journeys[j].meta[mk][1]);
+          if (journeys[j].meta[mk][0] === 'steps') recorded = journeys[j].meta[mk][1];
         }
-        var named = recorded ? recorded.match(ID_PATTERN) || [] : [];
+        var named = recorded.map(function (step) { return step['use-case']; });
         for (var s = 0; s < named.length; s += 1) {
           if (byId[named[s]] && byId[named[s]].kind === 'use-case') steps.push(byId[named[s]]);
         }
@@ -2553,23 +2601,12 @@ function token(kind: string): string {
   return `<span class="token k-${escapeHtml(kind)}" data-kind="${escapeHtml(kind)}" title="${escapeHtml(kindLabels[kind] ?? kind)}">${escapeHtml(kindTokens[kind] ?? '?')}</span>`;
 }
 
-function metaValue(value: unknown): string {
-  if (Array.isArray(value)) return value.map((item) => metaValue(item)).join(', ');
-  if (value !== null && typeof value === 'object') {
-    return Object.entries(value as Record<string, unknown>)
-      .map(([k, v]) => `${k}: ${metaValue(v)}`)
-      .join('; ');
-  }
-  return String(value);
-}
-
-/** Frontmatter beyond the fields the header already shows, as plain key/value text pairs. */
-function metaPairs(frontmatter: Record<string, unknown>): [string, string][] {
+/** Frontmatter beyond the header fields, preserving nested values for the Reader. */
+function metaPairs(frontmatter: Record<string, unknown>): [string, unknown][] {
   const skip = new Set(['id', 'type', 'title', 'status']);
   return Object.entries(frontmatter)
     .filter(([key, value]) => !skip.has(key) && value !== undefined && value !== null)
-    .filter(([, value]) => !(Array.isArray(value) && value.length === 0))
-    .map(([key, value]) => [key, metaValue(value)]);
+    .filter(([, value]) => !(Array.isArray(value) && value.length === 0));
 }
 
 function sortedByKind(artifacts: LoadedArtifact[]): Map<string, LoadedArtifact[]> {

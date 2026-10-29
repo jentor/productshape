@@ -68,7 +68,7 @@ function embeddedData(html: string): {
     kind: string;
     title: string;
     status: string;
-    meta: [string, string][];
+    meta: [string, unknown][];
     body: string;
   }[];
   edges: { from: string; to: string; kind: string }[];
@@ -295,7 +295,7 @@ describe('buildSnapshotHtml — embedded data completeness', () => {
     expect(uc?.body).toContain('Do the thing with <strong>emphasis</strong>');
     expect(uc?.meta).toEqual(expect.arrayContaining([['primary-actor', 'ACT-A']]));
     const jrn = data.artifacts.find((a) => a.id === 'JRN-A');
-    expect(jrn?.meta).toEqual(expect.arrayContaining([['steps', 'use-case: UC-A']]));
+    expect(jrn?.meta).toEqual(expect.arrayContaining([['steps', [{ 'use-case': 'UC-A' }]]]));
   });
 
   it('carries every relationship of the compiled graph', () => {
@@ -1861,6 +1861,73 @@ describe('the artifact reader (SLI-EXPLORER-002)', () => {
     const dd = doc.querySelector('#detail dl.meta dd');
     expect(dd?.textContent).toBe('human');
     expect(dd?.querySelector('a')).toBeNull();
+  });
+
+  it('keeps nested metadata readable, ordered and safe, with working artifact links', async () => {
+    const verification = [
+      { id: 'AC-01', scenario: 'Check UC-Z1, then ACT-A; preserve order.\nSecond line.' },
+      { id: 'AC-02', scenario: hostile },
+      { scenario: 'A scenario without an identifier.' },
+      { 'scenario-ref': 'SB-CHECK' },
+    ];
+    const provenance = {
+      source: 'requirements/revoke-access.md',
+      evidence: { [hostile]: ['UC-Z1', 'unknown UC-MISSING', false, 0, null, [], {}] },
+    };
+    const artifacts = [
+      ...model,
+      artifact('SB-CHECK', 'structured-behaviour'),
+      artifact('FR-NESTED', 'functional-requirement', {
+        'derived-from': ['UC-Z1', 'UC-Z0'],
+        verification,
+        provenance,
+      }),
+    ];
+    const html = build(artifacts);
+    expect(embeddedData(html).artifacts.find((a) => a.id === 'FR-NESTED')?.meta).toEqual([
+      ['derived-from', ['UC-Z1', 'UC-Z0']],
+      ['verification', verification],
+      ['provenance', provenance],
+    ]);
+    const nested = new JSDOM(html, {
+      url: 'https://snapshot.invalid/#/artifacts/FR-NESTED',
+      runScripts: 'dangerously',
+    });
+    const detail = nested.window.document.querySelector('#detail')!;
+    const values = [...detail.querySelectorAll('dl.meta > dd')];
+    expect([...values[0]!.querySelectorAll('a.ref')].map((a) => a.getAttribute('href'))).toEqual([
+      '#/artifacts/UC-Z1',
+      '#/artifacts/UC-Z0',
+    ]);
+    const scenarios = [...values[1]!.querySelectorAll(':scope > ul > li')];
+    expect(scenarios).toHaveLength(4);
+    expect(values[1]!.querySelector('ol, dt')).toBeNull();
+    expect(scenarios[0]!.querySelector('.scenario-id')?.textContent).toBe('AC-01');
+    expect(scenarios[0]!.querySelector('.meta-text')?.textContent).toBe(verification[0]!.scenario);
+    expect(scenarios[1]!.querySelector('.meta-text')?.textContent).toBe(hostile);
+    expect(scenarios[2]!.querySelector('.scenario-id')).toBeNull();
+    expect(scenarios[2]!.textContent).toBe('A scenario without an identifier.');
+    expect(scenarios[3]!.querySelector('a.ref')?.getAttribute('href')).toBe('#/artifacts/SB-CHECK');
+    expect(values).toHaveLength(3);
+    const sources = values[2]!;
+    expect(sources.querySelector(':scope > dl > dd > dl > dt')?.textContent).toBe(hostile);
+    expect([...sources.querySelectorAll('ol > li')].slice(1).map((li) => li.textContent)).toEqual([
+      'unknown UC-MISSING',
+      'false',
+      '0',
+      'null',
+      '[]',
+      '{}',
+    ]);
+    expect(detail.querySelector('script, img, [onload]')).toBeNull();
+    const link = scenarios[0]!.querySelector('a.idlink') as HTMLAnchorElement;
+    const navigated = new Promise<void>((resolve) => {
+      nested.window.addEventListener('hashchange', () => resolve(), { once: true });
+    });
+    link.click();
+    await navigated;
+    expect(nested.window.document.querySelector('#detail .aid')?.textContent).toBe('UC-Z1');
+    nested.window.close();
   });
 
   it('steps through the current list and states the position within the kind', () => {

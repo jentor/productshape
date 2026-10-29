@@ -53,6 +53,8 @@ prodshape doctor                            # repository health
 
 Exit codes: `0` success (warnings allowed), `1` validation errors, `2` invalid invocation or configuration, `3` unexpected failure.
 
+The HTML snapshot preserves nested metadata: verification scenarios appear as an unnumbered list with optional identifier badges, and provenance objects show labeled fields. Artifact references remain navigable, and text retains its authored line breaks.
+
 ## The governed citation-first walkthrough
 
 The smallest real adoption: one accepted artifact, one consumer that cites it, one stale dependency detected before merge. Every step is a copied command or a copied file; a first verified citation takes well under ten minutes. This is the governed path, where the definition changes only through Product Changes, as opposed to the disposable sandbox demo in the repository README, which edits the model directly to show the mechanics.

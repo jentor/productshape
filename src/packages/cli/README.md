@@ -53,7 +53,7 @@ prodshape doctor                            # repository health
 
 Exit codes: `0` success (warnings allowed), `1` validation errors, `2` invalid invocation or configuration, `3` unexpected failure.
 
-The HTML snapshot preserves nested metadata: verification scenarios appear as an unnumbered list with optional identifier badges, and provenance objects show labeled fields. Journey steps appear as compact use-case reference chips in their authored order. Artifact references remain navigable, and text retains its authored line breaks.
+The HTML snapshot preserves nested metadata: verification scenarios appear as an unnumbered list with optional identifier badges, and provenance stays in the header metadata panel, hidden by default behind its more/less control. Journey steps appear as compact use-case reference chips in their authored order. Artifact references remain navigable, and text retains its authored line breaks.
 
 ## The governed citation-first walkthrough
 

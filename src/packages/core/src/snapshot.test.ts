@@ -1908,8 +1908,17 @@ describe('the artifact reader (SLI-EXPLORER-002)', () => {
     expect(scenarios[2]!.querySelector('.scenario-id')).toBeNull();
     expect(scenarios[2]!.textContent).toBe('A scenario without an identifier.');
     expect(scenarios[3]!.querySelector('a.ref')?.getAttribute('href')).toBe('#/artifacts/SB-CHECK');
-    expect(values).toHaveLength(3);
-    const sources = values[2]!;
+    expect(values).toHaveLength(2);
+    const sources = detail.querySelector('header .meta-panel .provenance') as HTMLElement;
+    const toggle = detail.querySelector('header .meta-toggle') as HTMLButtonElement;
+    expect(sources.hidden).toBe(true);
+    expect(toggle.textContent).toBe('more');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.getAttribute('aria-controls')).toBe(sources.id);
+    toggle.click();
+    expect(sources.hidden).toBe(false);
+    expect(toggle.textContent).toBe('less');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(sources.querySelector(':scope > dl > dd > dl > dt')?.textContent).toBe(hostile);
     expect([...sources.querySelectorAll('ol > li')].slice(1).map((li) => li.textContent)).toEqual([
       'unknown UC-MISSING',
@@ -1919,6 +1928,10 @@ describe('the artifact reader (SLI-EXPLORER-002)', () => {
       '[]',
       '{}',
     ]);
+    toggle.click();
+    expect(sources.hidden).toBe(true);
+    expect(toggle.textContent).toBe('more');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(detail.querySelector('script, img, [onload]')).toBeNull();
     const link = scenarios[0]!.querySelector('a.idlink') as HTMLAnchorElement;
     const navigated = new Promise<void>((resolve) => {

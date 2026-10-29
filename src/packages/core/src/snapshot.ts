@@ -447,8 +447,8 @@ body[data-master='rail'] .master-credit .label { display: none; }
   display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.3rem 1rem; margin: 0 0 0.9rem;
   padding: 0.55rem 0.75rem; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); font-size: 0.84rem;
 }
-.detail dl.meta dt { color: var(--muted); font-family: var(--mono); font-size: 0.76rem; line-height: 1.6rem; }
-.detail dl.meta dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; min-height: 1.6rem; min-width: 0; }
+.detail dl.meta dt, .detail .provenance dt { color: var(--muted); font-family: var(--mono); font-size: 0.76rem; line-height: 1.6rem; }
+.detail dl.meta dd, .detail .provenance dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; min-height: 1.6rem; min-width: 0; }
 .detail dl.meta > dt:has(+ dd > .meta-list), .detail dl.meta > dt:has(+ dd > .meta-object) {
   grid-column: 1 / -1; margin-top: 0.65rem; padding-top: 0.55rem; border-top: 1px solid var(--line);
 }
@@ -462,6 +462,12 @@ body[data-master='rail'] .master-credit .label { display: none; }
 .detail .verification-list > li::before { content: none; }
 .detail .verification-list .meta-text { flex: 1; min-width: 0; }
 .detail .scenario-id { flex: 0 0 auto; max-width: 30%; padding: 0.05rem 0.35rem; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--muted); font: 0.72rem/1.4 var(--mono); }
+.detail .meta-panel { position: relative; margin: 0 0 0.9rem; padding: 0.55rem 0.75rem; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+.detail .meta-panel > dl.meta { margin: 0; padding: 0; border: 0; background: none; }
+.detail .meta-panel:has(.meta-toggle) > dl.meta { padding-right: 3.5rem; }
+.detail .meta-toggle { position: absolute; top: 0.55rem; right: 0.75rem; border: 0; padding: 0.2rem 0.3rem; background: none; color: var(--accent); font-size: 0.76rem; cursor: pointer; }
+.detail .provenance { margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px solid var(--line); font-size: 0.84rem; overflow-wrap: anywhere; }
+.detail .meta-panel:has(> .meta-toggle):not(:has(> dl.meta)) { padding-top: 2.4rem; }
 .detail dl.meta { overflow-wrap: anywhere; }
 .detail .meta-text { white-space: pre-wrap; }
 a.ref {
@@ -1518,15 +1524,41 @@ const script = String.raw`
     idline.appendChild(badgeFor(a.status));
     header.appendChild(idline);
     header.appendChild(el('h3', 'artifact', a.title || a.id));
+    var provenance;
     if (a.meta && a.meta.length > 0) {
       var dl = el('dl', 'meta');
       for (var mi = 0; mi < a.meta.length; mi += 1) {
+        if (a.meta[mi][0] === 'provenance') {
+          provenance = a.meta[mi][1];
+          continue;
+        }
         dl.appendChild(el('dt', null, a.meta[mi][0]));
         var dd = el('dd');
         metaValue(dd, a.meta[mi][1], a.meta[mi][0]);
         dl.appendChild(dd);
       }
-      header.appendChild(dl);
+      var panel = el('div', 'meta-panel');
+      if (dl.childNodes.length > 0) panel.appendChild(dl);
+      if (provenance !== undefined) {
+        var sources = el('div', 'provenance');
+        sources.id = 'artifact-provenance';
+        sources.hidden = true;
+        sources.setAttribute('role', 'region');
+        sources.setAttribute('aria-label', 'Sources and provenance');
+        metaValue(sources, provenance);
+        var toggle = el('button', 'meta-toggle', 'more');
+        toggle.type = 'button';
+        toggle.setAttribute('aria-controls', sources.id);
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.addEventListener('click', function () {
+          sources.hidden = !sources.hidden;
+          toggle.textContent = sources.hidden ? 'more' : 'less';
+          toggle.setAttribute('aria-expanded', String(!sources.hidden));
+        });
+        panel.appendChild(toggle);
+        panel.appendChild(sources);
+      }
+      header.appendChild(panel);
     }
     host.appendChild(header);
 

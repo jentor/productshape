@@ -466,7 +466,7 @@ body[data-master='rail'] .master-credit .label { display: none; }
 .detail .meta-text { white-space: pre-wrap; }
 a.ref {
   display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--line-strong); border-radius: 3px;
-  padding: 0.05rem 0.4rem 0.05rem 0.25rem; background: var(--bg); color: var(--text); font-size: 0.82rem;
+  padding: 0.15rem 0.3rem; background: var(--bg); color: var(--text); font-size: 0.82rem;
 }
 a.ref:hover { border-color: var(--accent); text-decoration: none; }
 a.ref .rid { font: 0.7rem var(--mono); color: var(--muted); }
@@ -1348,6 +1348,12 @@ const script = String.raw`
     }
   };
   var metaValue = function (dd, value, fieldName) {
+    if (fieldName === 'steps' && Array.isArray(value) && value.every(function (step) {
+      return step && typeof step['use-case'] === 'string' && Object.keys(step).length === 1;
+    })) {
+      value.forEach(function (step) { metaValue(dd, step['use-case']); });
+      return;
+    }
     var parts = Array.isArray(value) ? value : [value];
     var allKnown = parts.length > 0 && parts.every(function (part) {
       return typeof part === 'string' && Object.prototype.hasOwnProperty.call(byId, part);

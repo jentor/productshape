@@ -1930,6 +1930,42 @@ describe('the artifact reader (SLI-EXPLORER-002)', () => {
     nested.window.close();
   });
 
+  it('renders journey steps as compact reference chips in authored order, retaining unresolved steps', async () => {
+    const artifacts = [
+      ...model.map((a) => (a.id === 'UC-Z2' ? { ...a, title: 'Manage calendar events' } : a)),
+      artifact('JRN-STEPS', 'journey', {
+        'primary-actor': 'ACT-A',
+        steps: [{ 'use-case': 'UC-Z2' }, { 'use-case': 'UC-Z0' }, { 'use-case': 'UC-MISSING' }],
+      }),
+    ];
+    const journey = new JSDOM(build(artifacts), {
+      url: 'https://snapshot.invalid/#/artifacts/JRN-STEPS',
+      runScripts: 'dangerously',
+    });
+    const list = [...journey.window.document.querySelectorAll('#detail dl.meta > dt')].find(
+      (dt) => dt.textContent === 'steps',
+    )!.nextElementSibling!;
+    expect(list.querySelector('ol, ul, dt')).toBeNull();
+    expect(list.children).toHaveLength(3);
+    const cards = [...list.querySelectorAll('a.ref')];
+    expect(cards.map((card) => card.getAttribute('href'))).toEqual([
+      '#/artifacts/UC-Z2',
+      '#/artifacts/UC-Z0',
+    ]);
+    expect(cards[0]!.querySelector('.rt')?.textContent).toBe('Manage calendar events');
+    expect(cards[0]!.querySelector('.rid')?.textContent).toBe('UC-Z2');
+    expect(cards[0]!.querySelector('.token')?.getAttribute('data-kind')).toBe('use-case');
+    expect(list.children[2]!.textContent).toBe('UC-MISSING');
+    expect(list.children[2]!.querySelector('a')).toBeNull();
+    const navigated = new Promise<void>((resolve) => {
+      journey.window.addEventListener('hashchange', () => resolve(), { once: true });
+    });
+    (cards[0] as HTMLAnchorElement).click();
+    await navigated;
+    expect(journey.window.document.querySelector('#detail .aid')?.textContent).toBe('UC-Z2');
+    journey.window.close();
+  });
+
   it('steps through the current list and states the position within the kind', () => {
     open('#/artifacts/UC-Z1?k=use-case');
     expect(doc.querySelector('#detail .rbar .pos')?.textContent).toBe('2 of 4 Use Cases');
